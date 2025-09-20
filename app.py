@@ -10,20 +10,17 @@ def get_premier_league_table():
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                       "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept-Language": "en-US,en;q=0.9",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     }
     response = requests.get(url, headers=headers)
     soup = BeautifulSoup(response.text, "html.parser")
 
-    table = soup.find("table", {"class": "standing-table__table"})
-    if not table:
-        raise ValueError("لم يتم العثور على جدول الترتيب في الصفحة. تحقق من تغيّر هيكلة الموقع.")
+    # ندور على كل صف (row) في الترتيب
+    rows = soup.find_all("div", class_="standing-table__row")
 
-    rows = table.find("tbody").find_all("tr")
     data = []
     for row in rows:
-        cols = row.find_all("td")
-        if cols:
+        cols = row.find_all("div", class_="standing-table__cell")
+        if len(cols) >= 10:  # عشان نتأكد إن الصف كامل
             data.append({
                 "Position": cols[0].get_text(strip=True),
                 "Team": cols[1].get_text(strip=True),
@@ -36,6 +33,9 @@ def get_premier_league_table():
                 "GD": cols[8].get_text(strip=True),
                 "Points": cols[9].get_text(strip=True),
             })
+
+    if not data:
+        raise ValueError("⚠️ لم يتم العثور على بيانات الترتيب. تحقق من تغيّر هيكلة Sky Sports.")
 
     return pd.DataFrame(data)
 
