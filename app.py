@@ -14,13 +14,18 @@ def get_premier_league_table():
     response = requests.get(url, headers=headers)
     soup = BeautifulSoup(response.text, "html.parser")
 
-    # ندور على كل صف (row) في الترتيب
-    rows = soup.find_all("div", class_="standing-table__row")
+    # آخر تحديث
+    last_updated = None
+    update_elem = soup.find("p", class_="standing-table__update")
+    if update_elem:
+        last_updated = update_elem.get_text(strip=True)
 
+    # الترتيب
+    rows = soup.find_all("div", class_="standing-table__row")
     data = []
     for row in rows:
         cols = row.find_all("div", class_="standing-table__cell")
-        if len(cols) >= 10:  # عشان نتأكد إن الصف كامل
+        if len(cols) >= 10:  # لازم يكون الصف مكتمل
             data.append({
                 "Position": cols[0].get_text(strip=True),
                 "Team": cols[1].get_text(strip=True),
@@ -37,24 +42,31 @@ def get_premier_league_table():
     if not data:
         raise ValueError("⚠️ لم يتم العثور على بيانات الترتيب. تحقق من تغيّر هيكلة Sky Sports.")
 
-    return pd.DataFrame(data)
+    return pd.DataFrame(data), last_updated
 
 
-# واجهة Streamlit
+# Streamlit App
 st.set_page_config(page_title="Premier League Table", layout="wide")
 st.title("📊 Premier League Standings (Sky Sports)")
 
 try:
-    df = get_premier_league_table()
+    df, last_updated = get_premier_league_table()
+    if last_updated:
+        st.info(f"🕒 {last_updated}")
+
     st.success("✅ تم جلب البيانات بنجاح!")
     st.dataframe(df, use_container_width=True)
 
+    # CSV Download
     csv = df.to_csv(index=False).encode("utf-8-sig")
     st.download_button("⬇️ تحميل CSV", data=csv, file_name="premier_league_table.csv", mime="text/csv")
 
+    # Excel Download
     buffer = BytesIO()
     df.to_excel(buffer, index=False)
-    st.download_button("⬇️ تحميل Excel", data=buffer.getvalue(), file_name="premier_league_table.xlsx", mime="application/vnd.ms-excel")
+    st.download_button("⬇️ تحميل Excel", data=buffer.getvalue(),
+                       file_name="premier_league_table.xlsx",
+                       mime="application/vnd.ms-excel")
 
 except Exception as e:
     st.error(f"⚠️ حصل خطأ أثناء جلب البيانات: {e}")
