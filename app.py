@@ -1,76 +1,57 @@
-import streamlit as st
 import requests
 from bs4 import BeautifulSoup
 import pandas as pd
+import streamlit as st
+from io import BytesIO
 
-# جلب جدول الدوري من BBC
-def fetch_bbc_table():
-    url = "https://www.bbc.com/sport/football/premier-league/table"
-    response = requests.get(url)
-    soup = BeautifulSoup(response.text, "html.parser")
-
-    table = []
-    rows = soup.select("table.gs-o-table tbody tr")
-
-    for row in rows:
-        cols = row.find_all("td")
-        if len(cols) >= 10:
-            table.append([
-                cols[0].text.strip(),  # Pos
-                cols[1].text.strip(),  # Team
-                cols[2].text.strip(),  # P
-                cols[3].text.strip(),  # W
-                cols[4].text.strip(),  # D
-                cols[5].text.strip(),  # L
-                cols[6].text.strip(),  # GF
-                cols[7].text.strip(),  # GA
-                cols[8].text.strip(),  # GD
-                cols[9].text.strip()   # Pts
-            ])
-
-    return pd.DataFrame(table, columns=["Pos", "Team", "P", "W", "D", "L", "GF", "GA", "GD", "Pts"])
-
-# جلب جدول الدوري من Sky
-def fetch_sky_table():
+# ====== دالة تجيب البيانات ======
+def get_premier_league_table():
     url = "https://www.skysports.com/premier-league-table"
-    response = requests.get(url)
+    response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"})
     soup = BeautifulSoup(response.text, "html.parser")
 
-    table = []
-    rows = soup.select("table.standing-table__table tbody tr")
+    table = soup.find("table", {"class": "standing-table__table"})
+    rows = table.find("tbody").find_all("tr")
 
+    data = []
     for row in rows:
         cols = row.find_all("td")
-        if len(cols) >= 10:
-            table.append([
-                cols[0].text.strip(),
-                cols[1].text.strip(),
-                cols[2].text.strip(),
-                cols[3].text.strip(),
-                cols[4].text.strip(),
-                cols[5].text.strip(),
-                cols[6].text.strip(),
-                cols[7].text.strip(),
-                cols[8].text.strip(),
-                cols[9].text.strip()
-            ])
+        if cols:
+            data.append({
+                "Position": cols[0].text.strip(),
+                "Team": cols[1].text.strip(),
+                "Played": cols[2].text.strip(),
+                "Won": cols[3].text.strip(),
+                "Drawn": cols[4].text.strip(),
+                "Lost": cols[5].text.strip(),
+                "GF": cols[6].text.strip(),
+                "GA": cols[7].text.strip(),
+                "GD": cols[8].text.strip(),
+                "Points": cols[9].text.strip()
+            })
 
-    return pd.DataFrame(table, columns=["Pos", "Team", "P", "W", "D", "L", "GF", "GA", "GD", "Pts"])
+    return pd.DataFrame(data)
 
 
-# ✅ واجهة Streamlit
-st.title("📊 Premier League Standings")
-
-# زر الاختيار بين BBC و Sky
-source = st.radio("اختر المصدر:", ["BBC Sport", "Sky Sports"])
+# ====== واجهة Streamlit ======
+st.set_page_config(page_title="Premier League Table", layout="wide")
+st.title("📊 Premier League Standings (Sky Sports)")
 
 try:
-    if source == "BBC Sport":
-        df = fetch_bbc_table()
-    else:
-        df = fetch_sky_table()
+    df = get_premier_league_table()
+    st.success("✅ تم جلب البيانات بنجاح!")
 
+    # عرض الجدول
     st.dataframe(df, use_container_width=True)
+
+    # تحميل CSV
+    csv = df.to_csv(index=False).encode("utf-8-sig")
+    st.download_button("⬇️ تحميل CSV", data=csv, file_name="premier_league_table.csv", mime="text/csv")
+
+    # تحميل Excel
+    buffer = BytesIO()
+    df.to_excel(buffer, index=False)
+    st.download_button("⬇️ تحميل Excel", data=buffer.getvalue(), file_name="premier_league_table.xlsx", mime="application/vnd.ms-excel")
 
 except Exception as e:
     st.error(f"⚠️ حصل خطأ أثناء جلب البيانات: {e}")
