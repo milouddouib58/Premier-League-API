@@ -1,25 +1,35 @@
 import requests
 from bs4 import BeautifulSoup
 from tabulate import tabulate
+import re  # أضفنا مكتبة التعابير النمطية
 
 link = "https://onefootball.com/en/competition/premier-league-9/table"
-source = requests.get(link).text
+
+# إضافة ترويسة لتبدو كمتصفح حقيقي وتتجنب الحظر
+headers = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+}
+
+source = requests.get(link, headers=headers).text
 page = BeautifulSoup(source, "lxml")
 
-# Find all rows in the standings table
-rows = page.find_all("li", class_="Standing_standings__row__5sdZG")
+# إعداد أنماط بحث مرنة تتجاهل الرموز العشوائية في نهاية الكلاس
+row_pattern = re.compile(r"standings__row", re.IGNORECASE)
+cell_pattern = re.compile(r"standings__cell", re.IGNORECASE)
+team_pattern = re.compile(r"standings__teamName", re.IGNORECASE)
 
-# Initialize the table
-table = []
-table.append(["Position", "Team", "Played", "Wins", "Draws", "Losses", "Goal Difference", "Points"])
+# البحث باستخدام النمط المرن بدلاً من الاسم الحرفي
+rows = page.find_all("li", class_=row_pattern)
 
-# Extract data for each row
+table = [["Position", "Team", "Played", "Wins", "Draws", "Losses", "Goal Difference", "Points"]]
+
 for row in rows:
-    position_elem = row.find("div", class_="Standing_standings__cell__5Kd0W")
-    team_elem = row.find("p", class_="Standing_standings__teamName__psv61")
-    stats = row.find_all("div", class_="Standing_standings__cell__5Kd0W")
+    position_elem = row.find("div", class_=cell_pattern)
+    team_elem = row.find(["p", "span", "div"], class_=team_pattern) # جعلنا وسم الفريق مرناً أيضاً
+    stats = row.find_all("div", class_=cell_pattern)
 
-    if position_elem and team_elem and len(stats) >= 7:
+    # التأكد من وجود العناصر لتجنب أخطاء (NoneType)
+    if position_elem and team_elem and len(stats) >= 8:
         position = position_elem.text.strip()
         team = team_elem.text.strip()
         played = stats[2].text.strip()
@@ -29,8 +39,6 @@ for row in rows:
         goal_difference = stats[6].text.strip()
         points = stats[7].text.strip()
 
-        # Append the extracted data to the table
         table.append([position, team, played, wins, draws, losses, goal_difference, points])
 
-# Print the table in a pretty format
 print(tabulate(table, headers="firstrow", tablefmt="grid"))
