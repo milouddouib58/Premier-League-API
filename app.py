@@ -3,57 +3,56 @@ from bs4 import BeautifulSoup
 import pandas as pd
 import streamlit as st
 from io import BytesIO
+import re
 
 def get_premier_league_table():
-    url = "https://www.skysports.com/premier-league-table"
+    link = "https://onefootball.com/en/competition/premier-league-9/table"
+    
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                      "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept-Language": "en-US,en;q=0.9",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
     }
-    response = requests.get(url, headers=headers)
-    soup = BeautifulSoup(response.text, "html.parser")
+    
+    response = requests.get(link, headers=headers)
+    soup = BeautifulSoup(response.text, "lxml")
 
-    # آخر تحديث
-    last_updated = None
-    update_elem = soup.find("p", class_="standing-table__update")
-    if update_elem:
-        last_updated = update_elem.get_text(strip=True)
+    # إعداد أنماط بحث مرنة تتجاهل الرموز العشوائية
+    row_pattern = re.compile(r"standings__row", re.IGNORECASE)
+    cell_pattern = re.compile(r"standings__cell", re.IGNORECASE)
+    team_pattern = re.compile(r"standings__teamName", re.IGNORECASE)
 
-    # الترتيب
-    rows = soup.find_all("div", class_="standing-table__row")
+    rows = soup.find_all("li", class_=row_pattern)
+    
     data = []
+    
     for row in rows:
-        cols = row.find_all("div", class_="standing-table__cell")
-        if len(cols) >= 10:  # لازم يكون الصف مكتمل
+        position_elem = row.find("div", class_=cell_pattern)
+        team_elem = row.find(["p", "span", "div"], class_=team_pattern)
+        stats = row.find_all("div", class_=cell_pattern)
+
+        if position_elem and team_elem and len(stats) >= 8:
             data.append({
-                "Position": cols[0].get_text(strip=True),
-                "Team": cols[1].get_text(strip=True),
-                "Played": cols[2].get_text(strip=True),
-                "Won": cols[3].get_text(strip=True),
-                "Drawn": cols[4].get_text(strip=True),
-                "Lost": cols[5].get_text(strip=True),
-                "GF": cols[6].get_text(strip=True),
-                "GA": cols[7].get_text(strip=True),
-                "GD": cols[8].get_text(strip=True),
-                "Points": cols[9].get_text(strip=True),
+                "Position": position_elem.text.strip(),
+                "Team": team_elem.text.strip(),
+                "Played": stats[2].text.strip(),
+                "Wins": stats[3].text.strip(),
+                "Draws": stats[4].text.strip(),
+                "Losses": stats[5].text.strip(),
+                "Goal Difference": stats[6].text.strip(),
+                "Points": stats[7].text.strip()
             })
 
     if not data:
-        raise ValueError("⚠️ لم يتم العثور على بيانات الترتيب. تحقق من تغيّر هيكلة Sky Sports.")
+        raise ValueError("⚠️ لم يتم العثور على بيانات الترتيب. تأكد من اتصال الإنترنت أو هيكلة موقع OneFootball.")
 
-    return pd.DataFrame(data), last_updated
+    return pd.DataFrame(data)
 
-
-# Streamlit App
+# --- Streamlit App ---
 st.set_page_config(page_title="Premier League Table", layout="wide")
-st.title("📊 Premier League Standings (Sky Sports)")
+st.title("📊 Premier League Standings (OneFootball)")
 
 try:
-    df, last_updated = get_premier_league_table()
-    if last_updated:
-        st.info(f"🕒 {last_updated}")
-
+    df = get_premier_league_table()
+    
     st.success("✅ تم جلب البيانات بنجاح!")
     st.dataframe(df, use_container_width=True)
 
