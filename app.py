@@ -8,10 +8,10 @@ from duckduckgo_search import DDGS
 
 # --- إعدادات الصفحة ---
 st.set_page_config(page_title="Premier League Dashboard", layout="wide", page_icon="⚽")
-HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/91.0.4472.124 Safari/537.36"}
+HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36"}
 
 # --- دوال جلب البيانات ---
-@st.cache_data(ttl=3600) # تخزين مؤقت لتسريع التطبيق وتخفيف الضغط على الخوادم
+@st.cache_data(ttl=3600) # تخزين مؤقت لمدة ساعة لتخفيف الضغط على الموقع
 def get_table():
     link = "https://onefootball.com/en/competition/premier-league-9/table"
     source = requests.get(link, headers=HEADERS).text
@@ -50,7 +50,6 @@ def get_fixtures(team_filter=""):
     match_pattern = re.compile(r"matchCard", re.IGNORECASE)
     fix_elements = page.find_all("a", class_=match_pattern)
     
-    # فصل أسماء الفرق والوقت بفاصل واضح
     fixtures = [match.get_text(separator=" | ").strip() for match in fix_elements]
     
     if team_filter:
@@ -59,19 +58,25 @@ def get_fixtures(team_filter=""):
 
 def get_player_stats(player_name):
     try:
-        # استخدام DuckDuckGo لتجنب حظر Streamlit Cloud (Error 429)
-        query = f"{player_name} premier league player stats site:premierleague.com"
+        # بحث موسع لتجنب حظر DuckDuckGo
+        query = f"{player_name} premierleague.com players"
         search_results = []
         
         with DDGS() as ddgs:
-            results = list(ddgs.text(query, max_results=3))
+            # جلب أول 10 نتائج للبحث لضمان وجود الرابط المطلوب
+            results = list(ddgs.text(query, max_results=10))
             for r in results:
-                search_results.append(r['href'])
+                link = r.get('href', '') 
+                # تصفية الروابط لاختيار الموقع الرسمي فقط
+                if 'premierleague.com/players/' in link:
+                    search_results.append(link)
 
         if not search_results:
-            return None, "لم يتم العثور على اللاعب. تأكد من صحة الاسم."
+            return None, f"لم أتمكن من إيجاد اللاعب '{player_name}'. تأكد من كتابة الاسم باللغة الإنجليزية."
         
         res = search_results[0]
+        
+        # تحويل مسار الرابط ليذهب إلى صفحة الإحصائيات (stats)
         if "overview" in res:
             sta = res.replace('overview', 'stats')
         elif "stats" not in res:
@@ -81,16 +86,19 @@ def get_player_stats(player_name):
         else:
             sta = res
 
+        # جلب البيانات من موقع الدوري الإنجليزي
         source = requests.get(sta, headers=HEADERS).text
         page = BeautifulSoup(source, "lxml")
         
-        name_elem = page.find("div", class_="player-header__name t-colour")
+        # استخراج الاسم بمرونة
+        name_elem = page.find("div", class_=re.compile(r"player-header__name", re.IGNORECASE))
         if not name_elem: 
-            return None, "تعذر جلب بيانات هذا اللاعب من الموقع الرسمي."
+            return None, "تم إيجاد الصفحة لكن تعذر استخراج البيانات. قد يكون الموقع قام بتغيير تصميمه."
         
         name = re.sub(r'\s+', ' ', name_elem.text).strip()
         stats_dict = {"الاسم": name}
         
+        # استخراج الإحصائيات
         stat_elements = page.find_all("div", class_="player-stats__stat-value")
         for stat in stat_elements:
             title = stat.text.split("\n")[0].strip()
@@ -103,7 +111,7 @@ def get_player_stats(player_name):
         return stats_dict, None
 
     except Exception as e:
-        return None, f"حدث خطأ في الاتصال: {e}"
+        return None, f"حدث خطأ في الاتصال أو البحث: {e}"
 
 # --- واجهة المستخدم (Streamlit UI) ---
 st.title("⚽ Premier League Analytics Dashboard")
@@ -122,7 +130,6 @@ with tab1:
             csv = df_table.to_csv(index=False).encode("utf-8-sig")
             st.download_button("⬇️ تحميل CSV", data=csv, file_name="pl_table.csv", mime="text/csv")
         with col2:
-            # استخدام BytesIO لتحميل ملفات Excel بشكل صحيح
             buffer = BytesIO()
             df_table.to_excel(buffer, index=False)
             st.download_button("⬇️ تحميل Excel", data=buffer.getvalue(), file_name="pl_table.xlsx", mime="application/vnd.ms-excel")
@@ -140,7 +147,7 @@ with tab2:
             for match in matches:
                 st.info(match)
         else:
-            st.warning("لم يتم العثور على مباريات.")
+            st.warning("لم يتم العثور على مباريات للفريق المطلوب.")
     except Exception as e:
         st.error(f"خطأ في جلب المباريات: {e}")
 
