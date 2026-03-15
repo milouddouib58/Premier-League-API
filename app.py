@@ -58,21 +58,22 @@ def get_fixtures(team_filter=""):
 
 def get_player_stats(player_name):
     try:
-        # بحث موسع لتجنب حظر DuckDuckGo
-        query = f"{player_name} premierleague.com players"
+        # 1. تحديث ذكي للبحث: وضع الاسم بين علامتي تنصيص للبحث الدقيق وتحديد المسار
+        query = f'"{player_name}" site:premierleague.com/players'
         search_results = []
         
         with DDGS() as ddgs:
-            # جلب أول 10 نتائج للبحث لضمان وجود الرابط المطلوب
             results = list(ddgs.text(query, max_results=10))
             for r in results:
-                link = r.get('href', '') 
-                # تصفية الروابط لاختيار الموقع الرسمي فقط
-                if 'premierleague.com/players/' in link:
+                # 2. دعم جميع إصدارات المكتبة لجلب الرابط بغض النظر عن اسمه
+                link = r.get('href', r.get('link', r.get('url', ''))) 
+                
+                # 3. مرونة في التأكد من أن الرابط يتبع لصفحة لاعب في الموقع
+                if link and 'premierleague.com' in link and 'players' in link:
                     search_results.append(link)
 
         if not search_results:
-            return None, f"لم أتمكن من إيجاد اللاعب '{player_name}'. تأكد من كتابة الاسم باللغة الإنجليزية."
+            return None, f"لم أتمكن من إيجاد الرابط الرسمي للاعب '{player_name}'. تأكد من الاسم أو قد يكون الخادم محظوراً مؤقتاً."
         
         res = search_results[0]
         
@@ -93,7 +94,7 @@ def get_player_stats(player_name):
         # استخراج الاسم بمرونة
         name_elem = page.find("div", class_=re.compile(r"player-header__name", re.IGNORECASE))
         if not name_elem: 
-            return None, "تم إيجاد الصفحة لكن تعذر استخراج البيانات. قد يكون الموقع قام بتغيير تصميمه."
+            return None, "تم الوصول للصفحة لكن تعذر استخراج البيانات. قد يكون الموقع قام بتغيير تصميمه."
         
         name = re.sub(r'\s+', ' ', name_elem.text).strip()
         stats_dict = {"الاسم": name}
@@ -106,12 +107,12 @@ def get_player_stats(player_name):
             stats_dict[title] = val_elem.text.strip() if val_elem else "N/A"
             
         if len(stats_dict) <= 1:
-            return None, "تم العثور على اللاعب ولكن لا توجد إحصائيات متاحة حالياً."
+            return None, "تم العثور على اللاعب ولكن لا توجد إحصائيات متاحة حالياً في صفحته."
             
         return stats_dict, None
 
     except Exception as e:
-        return None, f"حدث خطأ في الاتصال أو البحث: {e}"
+        return None, f"حدث خطأ غير متوقع: {e}"
 
 # --- واجهة المستخدم (Streamlit UI) ---
 st.title("⚽ Premier League Analytics Dashboard")
