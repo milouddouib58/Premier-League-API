@@ -4,14 +4,14 @@ from bs4 import BeautifulSoup
 import pandas as pd
 import re
 from io import BytesIO
-from googlesearch import search
+from duckduckgo_search import DDGS
 
 # --- إعدادات الصفحة ---
 st.set_page_config(page_title="Premier League Dashboard", layout="wide", page_icon="⚽")
 HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/91.0.4472.124 Safari/537.36"}
 
 # --- دوال جلب البيانات ---
-@st.cache_data(ttl=3600) # تخزين مؤقت لتسريع التطبيق
+@st.cache_data(ttl=3600) # تخزين مؤقت لتسريع التطبيق وتخفيف الضغط على الخوادم
 def get_table():
     link = "https://onefootball.com/en/competition/premier-league-9/table"
     source = requests.get(link, headers=HEADERS).text
@@ -50,6 +50,7 @@ def get_fixtures(team_filter=""):
     match_pattern = re.compile(r"matchCard", re.IGNORECASE)
     fix_elements = page.find_all("a", class_=match_pattern)
     
+    # فصل أسماء الفرق والوقت بفاصل واضح
     fixtures = [match.get_text(separator=" | ").strip() for match in fix_elements]
     
     if team_filter:
@@ -57,36 +58,56 @@ def get_fixtures(team_filter=""):
     return fixtures
 
 def get_player_stats(player_name):
-    query = f"{player_name} premier league.com stats"
-    search_results = list(search(query, num_results=3))
-    if not search_results:
-        return None, "لم يتم العثور على اللاعب."
-    
-    res = search_results[0]
-    if "stats" in res: res = res.replace('stats', 'overview')
-    sta = res.replace('overview', 'stats')
-
-    source = requests.get(sta, headers=HEADERS).text
-    page = BeautifulSoup(source, "lxml")
-    
-    name_elem = page.find("div", class_="player-header__name t-colour")
-    if not name_elem: return None, "تعذر جلب بيانات هذا اللاعب."
-    
-    name = re.sub(r'\s+', ' ', name_elem.text).strip()
-    
-    stats_dict = {"الاسم": name}
-    stat_elements = page.find_all("div", class_="player-stats__stat-value")
-    for stat in stat_elements:
-        title = stat.text.split("\n")[0].strip()
-        val_elem = stat.find("span", class_="allStatContainer")
-        stats_dict[title] = val_elem.text.strip() if val_elem else "N/A"
+    try:
+        # استخدام DuckDuckGo لتجنب حظر Streamlit Cloud (Error 429)
+        query = f"{player_name} premier league player stats site:premierleague.com"
+        search_results = []
         
-    return stats_dict, None
+        with DDGS() as ddgs:
+            results = list(ddgs.text(query, max_results=3))
+            for r in results:
+                search_results.append(r['href'])
+
+        if not search_results:
+            return None, "لم يتم العثور على اللاعب. تأكد من صحة الاسم."
+        
+        res = search_results[0]
+        if "overview" in res:
+            sta = res.replace('overview', 'stats')
+        elif "stats" not in res:
+            if not res.endswith('/'):
+                res += '/'
+            sta = res + 'stats'
+        else:
+            sta = res
+
+        source = requests.get(sta, headers=HEADERS).text
+        page = BeautifulSoup(source, "lxml")
+        
+        name_elem = page.find("div", class_="player-header__name t-colour")
+        if not name_elem: 
+            return None, "تعذر جلب بيانات هذا اللاعب من الموقع الرسمي."
+        
+        name = re.sub(r'\s+', ' ', name_elem.text).strip()
+        stats_dict = {"الاسم": name}
+        
+        stat_elements = page.find_all("div", class_="player-stats__stat-value")
+        for stat in stat_elements:
+            title = stat.text.split("\n")[0].strip()
+            val_elem = stat.find("span", class_="allStatContainer")
+            stats_dict[title] = val_elem.text.strip() if val_elem else "N/A"
+            
+        if len(stats_dict) <= 1:
+            return None, "تم العثور على اللاعب ولكن لا توجد إحصائيات متاحة حالياً."
+            
+        return stats_dict, None
+
+    except Exception as e:
+        return None, f"حدث خطأ في الاتصال: {e}"
 
 # --- واجهة المستخدم (Streamlit UI) ---
 st.title("⚽ Premier League Analytics Dashboard")
 
-# تقسيم الواجهة إلى 3 تبويبات
 tab1, tab2, tab3 = st.tabs(["📊 الترتيب", "📅 المباريات", "🏃 إحصائيات اللاعبين"])
 
 # التبويب الأول: جدول الترتيب
@@ -96,11 +117,15 @@ with tab1:
         df_table = get_table()
         st.dataframe(df_table, use_container_width=True)
         
-        # أزرار التحميل
         col1, col2 = st.columns(2)
         with col1:
             csv = df_table.to_csv(index=False).encode("utf-8-sig")
             st.download_button("⬇️ تحميل CSV", data=csv, file_name="pl_table.csv", mime="text/csv")
+        with col2:
+            # استخدام BytesIO لتحميل ملفات Excel بشكل صحيح
+            buffer = BytesIO()
+            df_table.to_excel(buffer, index=False)
+            st.download_button("⬇️ تحميل Excel", data=buffer.getvalue(), file_name="pl_table.xlsx", mime="application/vnd.ms-excel")
     except Exception as e:
         st.error(f"خطأ في جلب الترتيب: {e}")
 
@@ -133,7 +158,6 @@ with tab3:
                 else:
                     st.success(f"تم العثور على بيانات: {stats.get('الاسم')}")
                     
-                    # عرض الإحصائيات في شبكة جميلة
                     cols = st.columns(3)
                     idx = 0
                     for key, value in stats.items():
@@ -142,3 +166,4 @@ with tab3:
                             idx += 1
         else:
             st.warning("الرجاء إدخال اسم اللاعب أولاً.")
+
