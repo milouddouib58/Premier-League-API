@@ -4,14 +4,13 @@ from bs4 import BeautifulSoup
 import pandas as pd
 import re
 from io import BytesIO
-from duckduckgo_search import DDGS
 
 # --- إعدادات الصفحة ---
 st.set_page_config(page_title="Premier League Dashboard", layout="wide", page_icon="⚽")
 HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36"}
 
 # --- دوال جلب البيانات ---
-@st.cache_data(ttl=3600) # تخزين مؤقت لمدة ساعة لتخفيف الضغط على الموقع
+@st.cache_data(ttl=3600)
 def get_table():
     link = "https://onefootball.com/en/competition/premier-league-9/table"
     source = requests.get(link, headers=HEADERS).text
@@ -56,63 +55,52 @@ def get_fixtures(team_filter=""):
         fixtures = [f for f in fixtures if team_filter.lower() in f.lower()]
     return fixtures
 
-def get_player_stats(player_name):
+# دالة سحب بيانات الفانتسي (FPL API) المخزنة مؤقتاً لتسريع البحث
+@st.cache_data(ttl=43200) # التحديث كل 12 ساعة
+def get_fpl_data():
+    url = "https://fantasy.premierleague.com/api/bootstrap-static/"
+    response = requests.get(url, headers=HEADERS)
+    return response.json()
+
+def get_player_stats_fpl(player_name):
     try:
-        # 1. تحديث ذكي للبحث: وضع الاسم بين علامتي تنصيص للبحث الدقيق وتحديد المسار
-        query = f'"{player_name}" site:premierleague.com/players'
-        search_results = []
-        
-        with DDGS() as ddgs:
-            results = list(ddgs.text(query, max_results=10))
-            for r in results:
-                # 2. دعم جميع إصدارات المكتبة لجلب الرابط بغض النظر عن اسمه
-                link = r.get('href', r.get('link', r.get('url', ''))) 
-                
-                # 3. مرونة في التأكد من أن الرابط يتبع لصفحة لاعب في الموقع
-                if link and 'premierleague.com' in link and 'players' in link:
-                    search_results.append(link)
+        data = get_fpl_data()
+        players = data.get('elements', [])
+        # استخراج قواميس الفرق والمراكز لترجمتها
+        teams = {t['id']: t['name'] for t in data.get('teams', [])}
+        positions = {p['id']: p['singular_name'] for p in data.get('element_types', [])}
 
-        if not search_results:
-            return None, f"لم أتمكن من إيجاد الرابط الرسمي للاعب '{player_name}'. تأكد من الاسم أو قد يكون الخادم محظوراً مؤقتاً."
-        
-        res = search_results[0]
-        
-        # تحويل مسار الرابط ليذهب إلى صفحة الإحصائيات (stats)
-        if "overview" in res:
-            sta = res.replace('overview', 'stats')
-        elif "stats" not in res:
-            if not res.endswith('/'):
-                res += '/'
-            sta = res + 'stats'
-        else:
-            sta = res
+        search_name = player_name.lower().strip()
+        found_player = None
 
-        # جلب البيانات من موقع الدوري الإنجليزي
-        source = requests.get(sta, headers=HEADERS).text
-        page = BeautifulSoup(source, "lxml")
-        
-        # استخراج الاسم بمرونة
-        name_elem = page.find("div", class_=re.compile(r"player-header__name", re.IGNORECASE))
-        if not name_elem: 
-            return None, "تم الوصول للصفحة لكن تعذر استخراج البيانات. قد يكون الموقع قام بتغيير تصميمه."
-        
-        name = re.sub(r'\s+', ' ', name_elem.text).strip()
-        stats_dict = {"الاسم": name}
-        
-        # استخراج الإحصائيات
-        stat_elements = page.find_all("div", class_="player-stats__stat-value")
-        for stat in stat_elements:
-            title = stat.text.split("\n")[0].strip()
-            val_elem = stat.find("span", class_="allStatContainer")
-            stats_dict[title] = val_elem.text.strip() if val_elem else "N/A"
-            
-        if len(stats_dict) <= 1:
-            return None, "تم العثور على اللاعب ولكن لا توجد إحصائيات متاحة حالياً في صفحته."
-            
+        # البحث عن اللاعب في قاعدة البيانات
+        for p in players:
+            full_name = f"{p['first_name']} {p['second_name']}".lower()
+            web_name = p['web_name'].lower()
+            if search_name in full_name or search_name in web_name:
+                found_player = p
+                break
+
+        if not found_player:
+            return None, f"لم أتمكن من إيجاد اللاعب '{player_name}'. حاول كتابة الاسم الأول أو الأخير فقط."
+
+        # تنسيق الإحصائيات بشكل جميل
+        stats_dict = {
+            "الاسم": f"{found_player['first_name']} {found_player['second_name']}",
+            "الفريق": teams.get(found_player['team'], "غير معروف"),
+            "المركز": positions.get(found_player['element_type'], "غير معروف"),
+            "الأهداف": str(found_player['goals_scored']),
+            "التمريرات الحاسمة (Assists)": str(found_player['assists']),
+            "دقائق اللعب": str(found_player['minutes']),
+            "الشباك النظيفة": str(found_player['clean_sheets']),
+            "البطاقات الصفراء": str(found_player['yellow_cards']),
+            "البطاقات الحمراء": str(found_player['red_cards']),
+            "نقاط الفانتسي": str(found_player['total_points'])
+        }
         return stats_dict, None
 
     except Exception as e:
-        return None, f"حدث خطأ غير متوقع: {e}"
+        return None, f"حدث خطأ في الاتصال بقاعدة البيانات: {e}"
 
 # --- واجهة المستخدم (Streamlit UI) ---
 st.title("⚽ Premier League Analytics Dashboard")
@@ -154,13 +142,13 @@ with tab2:
 
 # التبويب الثالث: إحصائيات اللاعبين
 with tab3:
-    st.subheader("محرك بحث إحصائيات اللاعبين")
-    player_input = st.text_input("🔍 أدخل اسم اللاعب:", placeholder="مثال: Mohamed Salah, Haaland...")
+    st.subheader("محرك بحث إحصائيات اللاعبين (قاعدة بيانات FPL الرسمية)")
+    player_input = st.text_input("🔍 أدخل اسم اللاعب:", placeholder="مثال: Mohamed Salah, Haaland, Saka...")
     
     if st.button("ابحث عن اللاعب"):
         if player_input:
-            with st.spinner("جارِ البحث وجلب البيانات..."):
-                stats, error = get_player_stats(player_input)
+            with st.spinner("جارِ البحث في قاعدة البيانات..."):
+                stats, error = get_player_stats_fpl(player_input)
                 if error:
                     st.error(error)
                 else:
