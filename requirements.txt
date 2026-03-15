@@ -1,11 +1,18 @@
-Streamlit>=1.39.0
+# الحزم الأساسية (مطلوبة لتشغيل التطبيق الحالي)
+streamlit>=1.39.0
 pandas>=2.2.0
 numpy>=1.26.0
 requests>=2.31.0
 beautifulsoup4>=4.12.3
-html5lib>=1.1
 lxml>=4.9.3
-Flask>=2.3.2
-Werkzeug>=2.3.0
-openpyxl
-duckduckgo-search
+plotly>=5.18.0
+scipy>=1.11.0
+
+# حزم إضافية (اختيارية - حسب التوسعات المستقبلية)
+html5lib>=1.1               # لمزيد من المرونة في تحليل HTML
+openpyxl                    # لتصدير البيانات إلى Excel
+duckduckgo-search            # للبحث وجلب الأخبار الرياضية
+
+# إذا كنت تخطط لإنشاء API أو واجهة Flask
+# Flask>=2.3.2
+# Werkzeug>=2.3.0
