@@ -980,7 +980,7 @@ with tabs[3]:
                     f"xG {h_team}", 0.1, 5.0, float(calc_h_xg), 0.05,
                     key=f"xg_home_{h_team}_{a_team}"
     )
-           with xg_col2:
+            with xg_col2:
                 f_a_xg = st.slider(
                     f"xG {a_team}", 0.1, 5.0, float(calc_a_xg), 0.05,
                     key=f"xg_away_{h_team}_{a_team}"
